@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>バーコードスキャン</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{
+  width:100%;height:100%;background:#000;color:#fff;
+  font-family:'Hiragino Sans','Yu Gothic',sans-serif;overflow:hidden;
+}
+#app{position:fixed;inset:0;background:#000}
+#video{
+  position:absolute;inset:0;width:100%;height:100%;
+  object-fit:cover;background:#000;
+}
+#workCanvas{display:none}
+
+.ov{position:absolute;inset:0;pointer-events:none;z-index:10}
+.mt{position:absolute;top:0;left:0;right:0;height:28%;background:rgba(0,0,0,.58)}
+.mb{position:absolute;bottom:0;left:0;right:0;height:28%;background:rgba(0,0,0,.58)}
+.ml{position:absolute;top:28%;bottom:28%;left:0;width:7%;background:rgba(0,0,0,.58)}
+.mr{position:absolute;top:28%;bottom:28%;right:0;width:7%;background:rgba(0,0,0,.58)}
+.fr{position:absolute;top:28%;bottom:28%;left:7%;right:7%}
+.fr::before,.fr::after,.fr span::before,.fr span::after{
+  content:'';position:absolute;width:24px;height:24px;border-color:#fff;border-style:solid;
+}
+.fr::before{top:0;left:0;border-width:2px 0 0 2px}
+.fr::after{top:0;right:0;border-width:2px 2px 0 0}
+.fr span::before{bottom:0;left:0;border-width:0 0 2px 2px}
+.fr span::after{bottom:0;right:0;border-width:0 2px 2px 0}
+.sl{
+  position:absolute;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent,#3b82f6,transparent);
+  box-shadow:0 0 8px #3b82f6;
+  animation:scan 2s ease-in-out infinite;
+}
+@keyframes scan{0%,100%{top:6%}50%{top:92%}}
+
+.top{
+  position:absolute;top:0;left:0;right:0;height:28%;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  z-index:20;text-align:center;padding:0 20px;pointer-events:none;
+}
+.top h1{font-size:18px;font-weight:700;margin-bottom:6px}
+.top p{font-size:13px;line-height:1.6;color:rgba(255,255,255,.76)}
+
+.bottom{
+  position:absolute;bottom:0;left:0;right:0;height:28%;
+  z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:14px;padding:0 20px;
+}
+.badge{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:8px 18px;border-radius:999px;font-size:13px;font-weight:700;
+  background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.24);
+  backdrop-filter:blur(4px);
+  max-width:90vw;
+}
+.dot{
+  width:8px;height:8px;border-radius:50%;background:#3b82f6;
+  animation:pulse 1.2s ease-in-out infinite;
+  flex-shrink:0;
+}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}
+.badge.ok{background:rgba(22,163,74,.24);border-color:rgba(22,163,74,.45)}
+.badge.ok .dot{background:#4ade80;animation:none}
+.badge.err{background:rgba(220,38,38,.24);border-color:rgba(220,38,38,.45)}
+.badge.err .dot{background:#f87171;animation:none}
+
+.row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+button{
+  appearance:none;border:none;cursor:pointer;
+  padding:12px 18px;border-radius:10px;font-size:14px;font-weight:700;
+}
+.primary{background:#2563eb;color:#fff}
+.secondary{
+  background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.28)
+}
+
+#startScreen{
+  position:fixed;inset:0;background:#0d0d0d;z-index:50;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;padding:32px 24px;gap:18px;
+}
+.logo{display:flex;gap:2px;align-items:center;height:44px}
+.logo span{display:inline-block;background:#3b82f6;height:100%;border-radius:1px}
+#startScreen h2{font-size:20px}
+#startScreen p{font-size:13px;line-height:1.8;color:rgba(255,255,255,.72);max-width:320px}
+#startScreen .big{width:100%;max-width:280px;padding:15px 20px}
+.note{
+  font-size:12px;color:rgba(255,255,255,.6);line-height:1.7;max-width:340px
+}
+
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div id="startScreen">
+  <div class="logo">
+    <span style="width:4px"></span><span style="width:1px;background:transparent"></span>
+    <span style="width:2px"></span><span style="width:1px;background:transparent"></span>
+    <span style="width:5px"></span><span style="width:1px;background:transparent"></span>
+    <span style="width:2px"></span><span style="width:1px;background:transparent"></span>
+    <span style="width:4px"></span><span style="width:1px;background:transparent"></span>
+    <span style="width:3px"></span>
+  </div>
+  <h2>バーコードスキャン</h2>
+  <p>ボタンを押すと、このサイト <strong>2yearsblog.github.io</strong> に対するカメラ許可確認が表示されます。<br><strong>「許可」</strong>を選んでください。</p>
+  <button class="primary big" id="startBtn">カメラを起動する</button>
+  <div class="note">以前に拒否したことがあると、確認が出ずに失敗することがあります。その場合はSafariのこのサイト設定でカメラを「確認」または「許可」に変更してください。</div>
+</div>
+
+<div id="app" class="hidden">
+  <video id="video" playsinline autoplay muted></video>
+  <canvas id="workCanvas"></canvas>
+
+  <div class="ov">
+    <div class="mt"></div><div class="mb"></div>
+    <div class="ml"></div><div class="mr"></div>
+    <div class="fr"><span></span><div class="sl"></div></div>
+  </div>
+
+  <div class="top">
+    <h1>バーコードをスキャン</h1>
+    <p>枠内にバーコードを合わせてください。<br>読み取れたら自動で戻ります。</p>
+  </div>
+
+  <div class="bottom">
+    <div class="badge" id="badge">
+      <div class="dot"></div>
+      <span id="badgeText">待機中...</span>
+    </div>
+    <div class="row">
+      <button class="secondary" id="retryBtn">カメラ再起動</button>
+      <button class="secondary" id="closeBtn">キャンセルして閉じる</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let stream = null;
+let detector = null;
+let running = false;
+let busy = false;
+let rafId = null;
+let lastValue = '';
+const video = document.getElementById('video');
+const canvas = document.getElementById('workCanvas');
+const startScreen = document.getElementById('startScreen');
+const app = document.getElementById('app');
+
+function setBadge(text, cls='') {
+  const badge = document.getElementById('badge');
+  badge.className = 'badge' + (cls ? ' ' + cls : '');
+  document.getElementById('badgeText').textContent = text;
+}
+
+async function initDetector() {
+  if (!('BarcodeDetector' in window)) {
+    throw new Error('BarcodeDetector非対応');
+  }
+  const supported = await BarcodeDetector.getSupportedFormats();
+  const wanted = ['code_128','code_39','code_93','ean_13','ean_8','itf','qr_code','data_matrix'];
+  const formats = wanted.filter(f => supported.includes(f));
+  if (!formats.length) throw new Error('対応バーコード形式なし');
+  detector = new BarcodeDetector({ formats });
+}
+
+async function startCamera() {
+  await stopCamera();
+
+  setBadge('カメラの許可を確認しています...');
+  startScreen.classList.add('hidden');
+  app.classList.remove('hidden');
+
+  try {
+    if (!detector) await initDetector();
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { exact: 'environment' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      });
+    } catch (e1) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
+      } catch (e2) {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      }
+    }
+
+    video.srcObject = stream;
+    await video.play();
+
+    running = true;
+    busy = false;
+    setBadge('読み取り中...');
+    scanLoop();
+  } catch (err) {
+    running = false;
+    const s = String(err && err.name ? err.name + ': ' + err.message : err);
+
+    if (s.includes('NotAllowedError') || s.includes('Permission')) {
+      setBadge('権限エラー: ' + s, 'err');
+    } else if (s.includes('NotReadableError')) {
+      setBadge('使用中エラー: ' + s, 'err');
+    } else if (s.includes('NotFoundError')) {
+      setBadge('カメラ未検出: ' + s, 'err');
+    } else {
+      setBadge('起動エラー: ' + s, 'err');
+    }
+
+    startScreen.classList.remove('hidden');
+    app.classList.add('hidden');
+  }
+}
+
+async function stopCamera() {
+  running = false;
+  busy = false;
+  if (rafId) {
+    cancelAnimationFrame(rafId);
+    rafId = null;
+  }
+  try { video.pause(); } catch(e) {}
+  video.srcObject = null;
+  if (stream) {
+    stream.getTracks().forEach(t => { try { t.stop(); } catch(e) {} });
+    stream = null;
+  }
+}
+
+async function scanLoop() {
+  if (!running) return;
+  if (busy) {
+    rafId = requestAnimationFrame(scanLoop);
+    return;
+  }
+  if (!video.videoWidth || !video.videoHeight) {
+    rafId = requestAnimationFrame(scanLoop);
+    return;
+  }
+
+  busy = true;
+
+  try {
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    const sx = Math.floor(vw * 0.07);
+    const sw = Math.floor(vw * 0.86);
+    const sh = Math.floor(vh * 0.28);
+    const sy = Math.floor((vh - sh) / 2);
+
+    canvas.width = sw;
+    canvas.height = sh;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+
+    const results = await detector.detect(canvas);
+    if (results && results.length && results[0].rawValue) {
+      const value = String(results[0].rawValue).trim();
+      if (value && value !== lastValue) {
+        lastValue = value;
+        onDetected(value);
+        return;
+      }
+    }
+  } catch (e) {}
+
+  busy = false;
+  rafId = requestAnimationFrame(scanLoop);
+}
+
+async function onDetected(value) {
+  setBadge('読み取り完了: ' + value, 'ok');
+
+  try {
+    if (navigator.vibrate) navigator.vibrate([60, 30, 60]);
+  } catch(e) {}
+
+  await stopCamera();
+
+  try {
+    localStorage.setItem('barcode_scan_result', JSON.stringify({
+      value,
+      ts: Date.now()
+    }));
+  } catch(e) {}
+
+  try {
+    if (window.opener) {
+      window.opener.postMessage({ type: 'BARCODE_RESULT', value }, '*');
+    }
+  } catch(e) {}
+
+  setTimeout(() => {
+    try { window.close(); } catch(e) {}
+  }, 500);
+}
+
+async function cancelAndClose() {
+  await stopCamera();
+
+  try {
+    localStorage.setItem('barcode_scan_result', JSON.stringify({
+      value: null,
+      cancelled: true,
+      ts: Date.now()
+    }));
+  } catch(e) {}
+
+  try {
+    if (window.opener) {
+      window.opener.postMessage({ type: 'SCAN_CANCELLED' }, '*');
+    }
+  } catch(e) {}
+
+  try { window.close(); } catch(e) {}
+}
+
+document.getElementById('startBtn').addEventListener('click', startCamera);
+document.getElementById('retryBtn').addEventListener('click', startCamera);
+document.getElementById('closeBtn').addEventListener('click', cancelAndClose);
+window.addEventListener('beforeunload', stopCamera);
+</script>
+</body>
+</html>
