@@ -56,10 +56,12 @@ html,body{
   padding:8px 18px;border-radius:999px;font-size:13px;font-weight:700;
   background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.24);
   backdrop-filter:blur(4px);
+  max-width:90vw;
 }
 .dot{
   width:8px;height:8px;border-radius:50%;background:#3b82f6;
   animation:pulse 1.2s ease-in-out infinite;
+  flex-shrink:0;
 }
 @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}
 .badge.ok{background:rgba(22,163,74,.24);border-color:rgba(22,163,74,.45)}
@@ -87,6 +89,9 @@ button{
 #startScreen h2{font-size:20px}
 #startScreen p{font-size:13px;line-height:1.8;color:rgba(255,255,255,.72);max-width:320px}
 #startScreen .big{width:100%;max-width:280px;padding:15px 20px}
+.note{
+  font-size:12px;color:rgba(255,255,255,.6);line-height:1.7;max-width:340px
+}
 
 .hidden{display:none!important}
 </style>
@@ -102,8 +107,9 @@ button{
     <span style="width:3px"></span>
   </div>
   <h2>バーコードスキャン</h2>
-  <p>ボタンを押すと、ブラウザのカメラ許可確認が表示されます。<br><strong>「許可」</strong>を選んでください。</p>
+  <p>ボタンを押すと、このサイト <strong>2yearsblog.github.io</strong> に対するカメラ許可確認が表示されます。<br><strong>「許可」</strong>を選んでください。</p>
   <button class="primary big" id="startBtn">カメラを起動する</button>
+  <div class="note">以前に拒否したことがあると、確認が出ずに失敗することがあります。その場合はSafariのこのサイト設定でカメラを「確認」または「許可」に変更してください。</div>
 </div>
 
 <div id="app" class="hidden">
@@ -153,12 +159,12 @@ function setBadge(text, cls='') {
 
 async function initDetector() {
   if (!('BarcodeDetector' in window)) {
-    throw new Error('このブラウザは BarcodeDetector に対応していません。');
+    throw new Error('BarcodeDetector非対応');
   }
   const supported = await BarcodeDetector.getSupportedFormats();
   const wanted = ['code_128','code_39','code_93','ean_13','ean_8','itf','qr_code','data_matrix'];
   const formats = wanted.filter(f => supported.includes(f));
-  if (!formats.length) throw new Error('対応バーコード形式がありません。');
+  if (!formats.length) throw new Error('対応バーコード形式なし');
   detector = new BarcodeDetector({ formats });
 }
 
@@ -205,16 +211,20 @@ async function startCamera() {
     scanLoop();
   } catch (err) {
     running = false;
-    const s = String(err || '');
+    const s = String(err && err.name ? err.name + ': ' + err.message : err);
+
     if (s.includes('NotAllowedError') || s.includes('Permission')) {
-      setBadge('カメラの使用が拒否されました', 'err');
+      setBadge('権限エラー: ' + s, 'err');
     } else if (s.includes('NotReadableError')) {
-      setBadge('カメラが他のアプリで使用中です', 'err');
+      setBadge('使用中エラー: ' + s, 'err');
     } else if (s.includes('NotFoundError')) {
-      setBadge('カメラが見つかりません', 'err');
+      setBadge('カメラ未検出: ' + s, 'err');
     } else {
-      setBadge('カメラ起動エラー', 'err');
+      setBadge('起動エラー: ' + s, 'err');
     }
+
+    startScreen.classList.remove('hidden');
+    app.classList.add('hidden');
   }
 }
 
@@ -249,7 +259,6 @@ async function scanLoop() {
   try {
     const vw = video.videoWidth;
     const vh = video.videoHeight;
-
     const sx = Math.floor(vw * 0.07);
     const sw = Math.floor(vw * 0.86);
     const sh = Math.floor(vh * 0.28);
@@ -325,7 +334,6 @@ async function cancelAndClose() {
 document.getElementById('startBtn').addEventListener('click', startCamera);
 document.getElementById('retryBtn').addEventListener('click', startCamera);
 document.getElementById('closeBtn').addEventListener('click', cancelAndClose);
-
 window.addEventListener('beforeunload', stopCamera);
 </script>
 </body>
